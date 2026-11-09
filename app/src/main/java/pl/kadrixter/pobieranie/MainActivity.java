@@ -33,7 +33,10 @@ import java.util.List;
 
 public class MainActivity extends Activity {
     private static final int[] STATUS_COLOR = {
-            0xFF9AA0A6, 0xFF4CC38A, 0xFFF0A832, 0xFFC9B458, 0xFF7AA7FF, 0xFFEF5350};
+            0xFF9AA0A6, 0xFF4CC38A, 0xFFF0A832, 0xFFC9B458, 0xFF7AA7FF, 0xFFEF5350, 0xFFB388FF};
+    /** Pozycje, dla których strona już raz sama się otworzyła (żeby nie otwierać w kółko). */
+    private static final java.util.Set<String> autoOpened = new java.util.HashSet<>();
+    private boolean resumed;
 
     private Downloader dl;
     private EditText input;
@@ -58,7 +61,9 @@ public class MainActivity extends Activity {
         list.setOnItemLongClickListener((p, v, pos, id) -> { itemMenu(adapter.data.get(pos)); return true; });
         list.setOnItemClickListener((p, v, pos, id) -> {
             Downloader.Item it = adapter.data.get(pos);
-            if (it.status == Downloader.DONE) open(it); else itemMenu(it);
+            if (it.status == Downloader.DONE) open(it);
+            else if (it.status == Downloader.NEED_WEB) openWeb(it);
+            else itemMenu(it);
         });
 
         findViewById(R.id.btn_add).setOnClickListener(v -> addFromInput());
@@ -146,6 +151,7 @@ public class MainActivity extends Activity {
         List<String> opts = new ArrayList<>();
         List<Runnable> acts = new ArrayList<>();
         if (it.status == Downloader.DONE) { opts.add("Otwórz"); acts.add(() -> open(it)); }
+        if (it.status != Downloader.DONE) { opts.add("🌐 Otwórz stronę i przeklikaj"); acts.add(() -> openWeb(it)); }
         if (it.status == Downloader.PAUSED || it.status == Downloader.ERROR) {
             opts.add("Wznów"); acts.add(() -> { dl.resume(it.id); DownloadService.ensureRunning(this); });
         }
@@ -172,6 +178,11 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Usuń", (d, w) -> dl.remove(it.id))
                 .setNegativeButton("Anuluj", null)
                 .show();
+    }
+
+    private void openWeb(Downloader.Item it) {
+        autoOpened.add(it.id);
+        startActivity(new Intent(this, BrowserActivity.class).putExtra(BrowserActivity.EXTRA_ID, it.id));
     }
 
     private void open(Downloader.Item it) {
@@ -201,13 +212,23 @@ public class MainActivity extends Activity {
             String s = Fmt.files(adapter.data.size()) + " · ukończone " + done;
             if (active > 0) s += "\nw toku " + active + " · " + Fmt.size((long) speed) + "/s";
             summary.setText(s);
+
+            // link dał stronę zamiast pliku -> od razu pokaż ją do przeklikania (raz na pozycję)
+            if (resumed) {
+                for (Downloader.Item i : adapter.data) {
+                    if (i.status == Downloader.NEED_WEB && !autoOpened.contains(i.id)) {
+                        openWeb(i);
+                        return; // odświeżanie wróci w onResume
+                    }
+                }
+            }
             h.postDelayed(this, 500);
         }
     };
 
-    @Override protected void onResume() { super.onResume(); h.post(refresh); }
+    @Override protected void onResume() { super.onResume(); resumed = true; h.removeCallbacks(refresh); h.post(refresh); }
 
-    @Override protected void onPause() { h.removeCallbacks(refresh); dl.save(true); super.onPause(); }
+    @Override protected void onPause() { resumed = false; h.removeCallbacks(refresh); dl.save(true); super.onPause(); }
 
     private class Adapter extends BaseAdapter {
         List<Downloader.Item> data = new ArrayList<>();
@@ -246,16 +267,19 @@ public class MainActivity extends Activity {
             info.setText(sb);
 
             String st = Downloader.STATUS_PL[it.status];
-            if ((it.status == Downloader.RETRY || it.status == Downloader.ERROR) && it.error != null && !it.error.isEmpty())
+            if ((it.status == Downloader.RETRY || it.status == Downloader.ERROR || it.status == Downloader.NEED_WEB)
+                    && it.error != null && !it.error.isEmpty())
                 st += " – " + it.error;
             status.setText(st);
             status.setTextColor(STATUS_COLOR[it.status]);
 
             boolean canPause = it.status == Downloader.QUEUED || it.status == Downloader.ACTIVE || it.status == Downloader.RETRY;
             boolean canResume = it.status == Downloader.PAUSED || it.status == Downloader.ERROR;
-            toggle.setVisibility(canPause || canResume ? View.VISIBLE : View.GONE);
-            toggle.setText(canPause ? "⏸" : "▶");
+            boolean needWeb = it.status == Downloader.NEED_WEB;
+            toggle.setVisibility(canPause || canResume || needWeb ? View.VISIBLE : View.GONE);
+            toggle.setText(needWeb ? "🌐" : canPause ? "⏸" : "▶");
             toggle.setOnClickListener(x -> {
+                if (needWeb) { openWeb(it); return; }
                 if (canPause) dl.pause(it.id);
                 else { dl.resume(it.id); DownloadService.ensureRunning(MainActivity.this); }
                 h.removeCallbacks(refresh);

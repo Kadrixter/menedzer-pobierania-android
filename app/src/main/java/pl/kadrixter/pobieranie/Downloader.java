@@ -34,8 +34,9 @@ import java.util.regex.Pattern;
 
 /** Silnik pobierania: kolejka, wznawianie (HTTP Range), nieskończone ponawianie błędów sieci. */
 public class Downloader {
-    public static final int QUEUED = 0, ACTIVE = 1, RETRY = 2, PAUSED = 3, DONE = 4, ERROR = 5;
-    public static final String[] STATUS_PL = {"W kolejce", "Pobieranie", "Ponawianie", "Wstrzymane", "Ukończone", "Błąd"};
+    public static final int QUEUED = 0, ACTIVE = 1, RETRY = 2, PAUSED = 3, DONE = 4, ERROR = 5, NEED_WEB = 6;
+    public static final String[] STATUS_PL = {"W kolejce", "Pobieranie", "Ponawianie", "Wstrzymane", "Ukończone", "Błąd",
+            "Wymaga przeklikania"};
 
     static final int MAX_PARALLEL = 3;
     static final int BACKOFF_MAX = 60;       // s
@@ -45,6 +46,9 @@ public class Downloader {
 
     public static class Item {
         public String id, url, filename, mime, uri, etag, lastModified, error = "";
+        public String ua, referer;   // ustawiane po przeklikaniu strony w apce
+        public boolean web;          // używaj ciasteczek z wbudowanej przeglądarki
+        public String origUrl;       // link wklejony przez użytkownika
         public int status = QUEUED;
         public long total = -1, downloaded = 0, added;
         public volatile double speed;
@@ -58,6 +62,7 @@ public class Downloader {
             o.put("uri", uri); o.put("etag", etag); o.put("lastModified", lastModified);
             o.put("error", error); o.put("status", status); o.put("total", total);
             o.put("downloaded", downloaded); o.put("added", added);
+            o.put("ua", ua); o.put("referer", referer); o.put("web", web); o.put("origUrl", origUrl);
             return o;
         }
 
@@ -69,6 +74,8 @@ public class Downloader {
             i.error = o.optString("error", ""); i.status = o.optInt("status", QUEUED);
             i.total = o.optLong("total", -1); i.downloaded = o.optLong("downloaded", 0);
             i.added = o.optLong("added", System.currentTimeMillis());
+            i.ua = str(o, "ua"); i.referer = str(o, "referer"); i.web = o.optBoolean("web", false);
+            i.origUrl = str(o, "origUrl");
             return i;
         }
 
@@ -105,6 +112,7 @@ public class Downloader {
     private Downloader(Context ctx) {
         this.ctx = ctx;
         this.stateFile = new File(ctx.getFilesDir(), "state.json");
+        DownloadService.createChannels(ctx);
         load();
         Thread t = new Thread(this::schedulerLoop, "scheduler");
         t.setDaemon(true);
@@ -163,6 +171,7 @@ public class Downloader {
                 Item it = new Item();
                 it.id = UUID.randomUUID().toString().substring(0, 12);
                 it.url = m.group().replaceAll("[)\\]>,.;'\"]+$", "");
+                it.origUrl = it.url;
                 it.added = System.currentTimeMillis();
                 items.add(it);
                 n++;
@@ -190,6 +199,48 @@ public class Downloader {
         if (it != null && (it.status == PAUSED || it.status == ERROR)) {
             it.status = QUEUED; it.error = ""; it.attempt = 0; it.retryAt = 0; mark(); notifyAll();
         }
+    }
+
+    /** Wbudowana przeglądarka złapała prawdziwy plik – podmień link i pobieraj dalej. */
+    public void resolveFromWeb(String id, String url, String ua, String referer) {
+        synchronized (this) {
+            Item it = find(id);
+            if (it == null) return;
+            it.url = url; it.ua = ua; it.referer = referer; it.web = true;
+            it.status = QUEUED; it.error = ""; it.attempt = 0; it.retryAt = 0;
+            mark();
+            notifyAll();
+        }
+        save(true);
+        try { ctx.getSystemService(android.app.NotificationManager.class).cancel(webNotifId(id)); } catch (Exception ignored) { }
+    }
+
+    static int webNotifId(String id) { return 5000 + (id.hashCode() & 0xffff); }
+
+    private void needWeb(Item it) {
+        synchronized (this) {
+            if (it.stop) return;
+            it.status = NEED_WEB; it.speed = 0;
+            it.error = "Link prowadzi do strony, nie do pliku – otwórz ją i przeklikaj";
+            mark();
+        }
+        save(true);
+        // powiadomienie: dotknij, żeby otworzyć stronę (gdy apka jest w tle)
+        try {
+            android.content.Intent i = new android.content.Intent(ctx, BrowserActivity.class)
+                    .putExtra(BrowserActivity.EXTRA_ID, it.id)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(ctx, it.id.hashCode(), i,
+                    android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+            android.app.Notification n = new android.app.Notification.Builder(ctx, DownloadService.CH_DONE)
+                    .setSmallIcon(R.drawable.ic_stat)
+                    .setContentTitle("Trzeba przeklikać stronę")
+                    .setContentText(it.displayName() + " – dotknij, żeby otworzyć")
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .build();
+            ctx.getSystemService(android.app.NotificationManager.class).notify(webNotifId(it.id), n);
+        } catch (Exception ignored) { }
     }
 
     public synchronized void pauseAll() { for (Item i : new ArrayList<>(items)) pause(i.id); }
@@ -306,8 +357,15 @@ public class Downloader {
             c.setInstanceFollowRedirects(false);
             c.setConnectTimeout(20000);
             c.setReadTimeout(60000);
-            c.setRequestProperty("User-Agent", UA);
+            c.setRequestProperty("User-Agent", it.ua != null ? it.ua : UA);
             c.setRequestProperty("Accept-Encoding", "identity");
+            if (it.referer != null) c.setRequestProperty("Referer", it.referer);
+            if (it.web) {
+                try {
+                    String ck = android.webkit.CookieManager.getInstance().getCookie(url.toString());
+                    if (ck != null && !ck.isEmpty()) c.setRequestProperty("Cookie", ck);
+                } catch (Exception ignored) { }
+            }
             if (pos > 0) {
                 c.setRequestProperty("Range", "bytes=" + pos + "-");
                 String v = (it.etag != null && !it.etag.startsWith("W/")) ? it.etag : it.lastModified;
@@ -345,6 +403,14 @@ public class Downloader {
             }
             if (code == 408 || code == 425 || code == 429 || code >= 500) throw new IOException("HTTP " + code);
             if (code >= 400) throw new HardError("HTTP " + code + " " + c.getResponseMessage());
+
+            // zamiast pliku przyszła strona (np. ostrzeżenie Google Drive, licznik, captcha) -> do przeklikania
+            String ct = c.getContentType();
+            if (code == 200 && ct != null && ct.toLowerCase().startsWith("text/html")
+                    && c.getHeaderField("Content-Disposition") == null) {
+                needWeb(it);
+                return;
+            }
 
             if (uri == null) {
                 String name = fileName(c);

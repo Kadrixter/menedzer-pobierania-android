@@ -9,12 +9,12 @@ android {
         applicationId 'pl.kadrixter.pobieranie'
         minSdk 29
         targetSdk 36
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '1.1'
     }
     signingConfigs {
         app {
-            // klucz trzymany lokalnie (poza repo) - stały, żeby aktualizacje się instalowały
+            // klucz trzymany lokalnie (poza repo) - staĹ‚y, ĹĽeby aktualizacje siÄ™ instalowaĹ‚y
             storeFile ks
             storePassword System.getenv('KS_PASS') ?: 'android'
             keyAlias 'pobieranie'

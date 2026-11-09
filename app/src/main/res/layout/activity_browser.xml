@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/bg" android:fitsSystemWindows="true">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingStart="14dp" android:paddingEnd="8dp" android:paddingTop="8dp" android:paddingBottom="8dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Przeklikaj stronę, aż zacznie się pobieranie"
+                android:textColor="@color/fg" android:textSize="14sp" android:textStyle="bold" />
+            <TextView android:id="@+id/url" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="@color/muted" android:textSize="11sp" android:singleLine="true"
+                android:ellipsize="middle" />
+        </LinearLayout>
+        <Button android:id="@+id/close" android:layout_width="44dp" android:layout_height="40dp"
+            android:layout_marginStart="8dp" android:background="@drawable/bg_btn" android:textColor="@color/fg"
+            android:textSize="16sp" android:padding="0dp" android:stateListAnimator="@null" android:text="✕" />
+    </LinearLayout>
+
+    <ProgressBar android:id="@+id/prog" style="@android:style/Widget.Material.ProgressBar.Horizontal"
+        android:layout_width="match_parent" android:layout_height="3dp" android:max="100"
+        android:progressDrawable="@drawable/progress" />
+
+    <WebView android:id="@+id/web" android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>
