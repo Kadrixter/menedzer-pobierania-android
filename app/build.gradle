@@ -1,0 +1,28 @@
+plugins { id 'com.android.application' }
+
+def ks = rootProject.file('keystore/release.keystore')
+
+android {
+    namespace 'pl.kadrixter.pobieranie'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'pl.kadrixter.pobieranie'
+        minSdk 29
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+    signingConfigs {
+        app {
+            // klucz trzymany lokalnie (poza repo) - stały, żeby aktualizacje się instalowały
+            storeFile ks
+            storePassword System.getenv('KS_PASS') ?: 'android'
+            keyAlias 'pobieranie'
+            keyPassword System.getenv('KS_PASS') ?: 'android'
+        }
+    }
+    buildTypes {
+        release { minifyEnabled false; signingConfig ks.exists() ? signingConfigs.app : signingConfigs.debug }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}

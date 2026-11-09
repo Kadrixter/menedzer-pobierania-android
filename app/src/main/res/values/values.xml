@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">Menedżer pobierania</string>
+
+    <color name="bg">#16181D</color>
+    <color name="panel">#1F232A</color>
+    <color name="panel2">#2A2F38</color>
+    <color name="fg">#E8EAED</color>
+    <color name="muted">#9AA0A6</color>
+    <color name="accent">#3D8BFF</color>
+    <color name="icon_top">#409CFF</color>
+    <color name="icon_bot">#2456E6</color>
+
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorPrimary">@color/bg</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:textColorPrimary">@color/fg</item>
+    </style>
+
+    <style name="Btn">
+        <item name="android:layout_height">44dp</item>
+        <item name="android:background">@drawable/bg_btn</item>
+        <item name="android:textColor">@color/fg</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+</resources>
